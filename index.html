@@ -211,19 +211,19 @@ function exportCsv(){
 const base=()=>location.href.split("#")[0];
 const unlock=code=>db.ref("editors/"+uid).set(code);
 function unlockSheet(){
-  sheet(`<h2>Unlock editing</h2><label class="f">Secret text<input id="uk" type="password" autocomplete="off"></label><div class="btns"><button class="pri" id="ug">Unlock</button></div>`);
-  $("ug").onclick=()=>unlock($("uk").value.trim()).then(()=>{$("dlg").close();toast("Editing unlocked")}).catch(()=>toast("Wrong secret text"));
+  sheet(`<h2>Unlock editing</h2><label class="f">Secret text<input id="uk" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"></label><div class="btns"><button class="pri" id="ug">Unlock</button></div>`);
+  $("ug").onclick=()=>unlock($("uk").value.trim()).then(()=>{$("dlg").close();toast("Editing unlocked")}).catch(e=>toast("Failed: "+(e.code||e.message)));
 }
 function share(){
   sheet(`<h2>Share</h2><div class="note">View-only link (anyone can look)</div><div class="box">${esc(base())}</div>
    <div class="btns" style="justify-content:flex-start"><button id="cv">Copy view link</button></div>
    <hr style="border:none;border-top:1px solid var(--line);margin:14px 0">
    <div class="note">Editor link (anyone with it can edit). Type the secret text to show it.</div>
-   <div class="row"><input id="sk" type="password" placeholder="Secret text" autocomplete="off"><button class="pri" id="sr">Show</button></div><div id="sout"></div>`+closeB);
+   <div class="row"><input id="sk" type="text" placeholder="Secret text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"><button class="pri" id="sr">Show</button></div><div id="sout"></div>`+closeB);
   $("cv").onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(base());toast("Link copied")};
   $("sr").onclick=async()=>{
     const code=$("sk").value.trim();if(!code||!uid)return;
-    try{await unlock(code)}catch(e){$("sout").innerHTML=`<div class="note" style="color:var(--lowink)">Wrong secret text.</div>`;return}
+    try{await unlock(code)}catch(e){$("sout").innerHTML=`<div class="note" style="color:var(--lowink)">Failed: ${esc(e.code||e.message)}</div>`;return}
     const link=base()+"#k="+encodeURIComponent(code);
     $("sout").innerHTML=`<div class="box">${esc(link)}</div><div class="btns" style="justify-content:flex-start"><button id="ce">Copy</button><button class="pri" onclick="window.open('https://wa.me/?text='+encodeURIComponent('Bar stock (edit): ${link.replace(/'/g,"")}'))">WhatsApp</button></div><div class="note">Share only with people you trust.</div>`;
     $("ce").onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(link);toast("Editor link copied")};
@@ -247,7 +247,7 @@ else{
     watching=db.ref("editors/"+uid);
     watching.on("value",s=>{canEdit=s.val()!==null;trySeed();render()},()=>{});
     const m=location.hash.match(/k=([^&]+)/);
-    if(m){try{await unlock(decodeURIComponent(m[1]));toast("Editing unlocked")}catch(e){toast("That editor link is not valid")}
+    if(m){try{await unlock(decodeURIComponent(m[1]));toast("Editing unlocked")}catch(e){toast("Link failed: "+(e.code||e.message))}
       history.replaceState(null,"",location.pathname+location.search)}
   });
 }
