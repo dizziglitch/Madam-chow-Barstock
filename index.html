@@ -57,10 +57,13 @@ pre,.box{white-space:pre-wrap;word-break:break-all;background:var(--head);border
 .note{font-size:12px;color:var(--mut);margin:4px 0 8px}
 #toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:#202124;color:#fff;padding:9px 14px;border-radius:4px;font-size:14px;display:none;z-index:9}
 #sync{font-size:12px;color:var(--mut);padding:10px 14px}
+.hello{display:flex;align-items:center;gap:10px;padding:9px 14px;background:#fff8e1;border-bottom:1px solid #f0e2a8;font-size:14px}
+.hello[hidden]{display:none}.hello span{flex:1}.hello a{color:var(--blue);cursor:pointer;font-size:13px}
 </style>
 </head>
 <body>
 <div class="top"><h1>Bar Stock</h1><div class="state" id="state"></div></div>
+<div class="hello" id="hello" hidden></div>
 <div class="tb">
   <input id="q" type="search" placeholder="Search item, note or category" autocomplete="off">
   <select id="fc"></select>
@@ -97,6 +100,12 @@ const lsSet=(k,v)=>{try{localStorage.setItem(k,v)}catch(e){}};
 let db,auth,uid=null,canEdit=false,cats=[],items=[],logs=[],catsNull=false,seeded=false;
 let q="",fcat="all",lowOnly=false,sk="name",sd=1;
 const pend={};
+let myName=lsGet("who")||"",nameOpen=false,startedFor=null;
+// ===== Welcome messages. Add more names here: lowercase first name -> list of messages ({n} = first name) =====
+const SPECIAL={
+  charmi:["Hii 15 days senior!","Welcome, 15 days senior {n}!","Hii {n}, 15 days senior has arrived","Good to see you, 15 days senior"]
+};
+const NORMAL=["Hii {n}, welcome!","Welcome back, {n}","Good to see you, {n}","Hello {n}, let us check the stock"];
 const cname=id=>(cats.find(c=>c.id===id)||{name:"Other"}).name;
 const isLow=i=>i.qty<=(i.min||0)&&(i.min>0||i.qty===0);
 const money=n=>"₹"+Math.round(n).toLocaleString("en-IN");
@@ -107,7 +116,7 @@ function hl(s){s=String(s==null?"":s);if(!q)return esc(s);const i=s.toLowerCase(
 function render(){
   $("state").innerHTML=canEdit?`Editing <a id="lk">Lock</a>`:`View only <a id="ul">Unlock to edit</a>`;
   $("fc").innerHTML=`<option value="all">All categories</option>`+cats.map(c=>`<option value="${c.id}" ${fcat===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
-  $("acts").innerHTML=(canEdit?`<button class="pri" id="bAdd">+ Add item</button><button id="bCat">Categories</button>`:"")+
+  $("acts").innerHTML=(canEdit?`<button class="pri" id="bAdd">+ Add item</button><button id="bCat">Categories</button><button id="bVis">Visitors</button>`:"")+
     `<button id="bRe">Reorder list</button><button id="bLog">Activity</button><button id="bSh">Share</button><button id="bX">Export CSV</button>`;
   document.querySelectorAll("th").forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,"")+(th.dataset.k===sk?(sd>0?" ▲":" ▼"):""));
   const rows=items.filter(i=>{
@@ -119,7 +128,7 @@ function render(){
   $("rows").innerHTML=rows.length?rows.map(i=>`<tr class="${isLow(i)?"low":""}" data-id="${i.id}">
     <td class="it" data-a="edit"><div class="nm">${hl(i.name)}</div>
       <div class="sub">${i.note?hl(i.note):""}</div>
-      <div class="sub msub">${[i.size?i.size+" ml":"",i.price?money(i.price):"",i.min?"min "+i.min:""].filter(Boolean).join(" · ")}</div></td>
+      <div class="sub msub">${[i.size?i.size+" ml":"",i.price?money(i.price):"",i.min?"min "+i.min:""].filter(Boolean).join(" · ")}</div>${i.by?`<div class="sub">Changed by ${esc(i.by)}, ${ago(i.updated)}</div>`:""}</td>
     <td>${hl(cname(i.cat))}</td>
     <td class="opt n">${i.size||""}</td><td class="opt n">${i.min||""}</td><td class="opt n">${i.price?money(i.price):""}</td>
     <td class="n">${canEdit?`<div class="stk"><button data-a="m" aria-label="Minus">−</button><input type="number" inputmode="numeric" min="0" value="${i.qty}" data-a="s"><button data-a="p" aria-label="Plus">+</button></div>`:`<b>${i.qty}</b>`}</td></tr>`).join("")
@@ -128,23 +137,25 @@ function render(){
   $("foot").innerHTML=`<tr><td colspan="6">Showing ${rows.length} of ${items.length} items · ${tot} bottles · ${lw} low${tv?" · value "+money(tv):""}</td></tr>`;
 }
 
-function who(){let n=lsGet("who");if(!n){n=(prompt("Your name (shown in the activity log)")||"").trim()||"Staff";lsSet("who",n)}return n}
+function who(){return myName||"Staff"}
 function log(text){if(db)db.ref("log").push({t:Date.now(),who:who(),text})}
 function setQty(i,n){
   if(!canEdit)return;n=Math.max(0,n);if(n===i.qty)return;
   const p=pend[i.id]=pend[i.id]||{from:i.qty};i.qty=n;render();
-  db.ref("items/"+i.id).update({qty:n,updated:Date.now()}).catch(()=>toast("Not allowed. Unlock editing first."));
+  db.ref("items/"+i.id).update({qty:n,updated:Date.now(),by:who()}).catch(()=>toast("Not allowed. Unlock editing first."));
   clearTimeout(p.t);p.t=setTimeout(()=>{const it=items.find(x=>x.id===i.id);delete pend[i.id];if(it&&it.qty!==p.from)log(`${i.name}: ${p.from} → ${it.qty}`)},1500);
 }
 
 document.addEventListener("click",e=>{
   const id=e.target.id;
   if(id==="bAdd")return itemSheet(null);if(id==="eAdd")return itemSheet(null,q);
-  if(id==="bCat")return catSheet();if(id==="bRe")return reorder();if(id==="bLog")return activity();
+  if(id==="bCat")return catSheet();if(id==="bVis")return visitors();if(id==="bRe")return reorder();if(id==="bLog")return activity();
   if(id==="bSh")return share();if(id==="bX")return exportCsv();
   if(id==="ul")return unlockSheet();
+  if(id==="hx"){$("hello").hidden=true;return}
+  if(id==="nn")return askName(myName).then(()=>{recordVisit(true);greet()});
   if(id==="lk"){auth.signOut().then(()=>auth.signInAnonymously()).then(()=>toast("Locked"));return}
-  const th=e.target.closest("th");if(th){const k=th.dataset.k;sd=sk===k?-sd:1;sk=k;render();return}
+  const th=e.target.closest("th[data-k]");if(th){const k=th.dataset.k;sd=sk===k?-sd:1;sk=k;render();return}
   const b=e.target.closest("#rows [data-a]");if(!b)return;
   const i=items.find(x=>x.id===b.closest("tr").dataset.id);if(!i)return;
   const a=b.dataset.a;
@@ -156,7 +167,7 @@ $("fc").onchange=e=>{fcat=e.target.value;render()};
 $("lo").onchange=e=>{lowOnly=e.target.checked;render()};
 
 function sheet(html){const d=$("dlg");d.onchange=null;d.innerHTML=html;if(!d.open)d.showModal()}
-$("dlg").onclick=e=>{if(e.target===$("dlg"))$("dlg").close()};
+$("dlg").onclick=e=>{if(e.target===$("dlg")&&!nameOpen)$("dlg").close()};
 const closeB=`<div class="btns"><button onclick="document.getElementById('dlg').close()">Close</button></div>`;
 
 function itemSheet(i,prefill){
@@ -174,7 +185,7 @@ function itemSheet(i,prefill){
    <div class="btns">${n?"":`<button class="del" id="fd">Delete</button>`}<button onclick="document.getElementById('dlg').close()">Cancel</button><button class="pri" id="fsv">Save</button></div>`);
   $("fsv").onclick=()=>{
     const name=$("fn").value.trim();if(!name){$("fn").focus();return}
-    const d={name,cat:$("fcat").value,qty:Math.max(0,parseInt($("fq").value,10)||0),min:Math.max(0,parseInt($("fm").value,10)||0),size:parseInt($("fs").value,10)||0,price:parseFloat($("fp").value)||0,note:$("fo").value.trim(),updated:Date.now()};
+    const d={name,cat:$("fcat").value,qty:Math.max(0,parseInt($("fq").value,10)||0),min:Math.max(0,parseInt($("fm").value,10)||0),size:parseInt($("fs").value,10)||0,price:parseFloat($("fp").value)||0,note:$("fo").value.trim(),updated:Date.now(),by:who()};
     const id=n?db.ref("items").push().key:i.id;
     db.ref("items/"+id).set(d).then(()=>{toast(n?"Item added":"Saved");log(n?`Added ${name} (${d.qty})`:`Edited ${name}`+(d.qty!==i.qty?`: ${i.qty} → ${d.qty}`:""))}).catch(()=>toast("Not allowed"));
     $("dlg").close();
@@ -230,6 +241,42 @@ function share(){
   };
 }
 
+const fmt=t=>t?new Date(t).toLocaleString("en-IN",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):"";
+function ago(t){if(!t)return"";const m=Math.floor((Date.now()-t)/60000);if(m<1)return"just now";if(m<60)return m+" min ago";if(m<1440)return Math.floor(m/60)+" h ago";return fmt(t)}
+function askName(cur){
+  return new Promise(res=>{
+    nameOpen=true;
+    sheet(`<h2>${cur?"Change name":"Welcome"}</h2><label class="f">Your name<input id="nm" maxlength="30" autocomplete="off" autocapitalize="words" value="${attr(cur||"")}"></label><div class="note">Your name is saved with your visits and with any changes you make.</div><div class="btns"><button class="pri" id="nok">Continue</button></div>`);
+    $("dlg").oncancel=e=>e.preventDefault();
+    const go=()=>{const v=$("nm").value.trim();if(v.length<2){$("nm").focus();return}
+      myName=v;lsSet("who",v);nameOpen=false;$("dlg").oncancel=null;$("dlg").close();res(v)};
+    $("nok").onclick=go;$("nm").onkeydown=e=>{if(e.key==="Enter")go()};$("nm").focus();
+  });
+}
+function recordVisit(force){
+  if(!db||!uid||!myName)return;
+  let seen=null;try{seen=sessionStorage.getItem("v"+uid);sessionStorage.setItem("v"+uid,"1")}catch(e){}
+  const now=Date.now();
+  db.ref("people/"+uid).transaction(c=>({name:myName,first:(c&&c.first)||now,last:now,visits:((c&&c.visits)||0)+((seen&&!force)?0:1)})).catch(()=>{});
+}
+function greet(){
+  const first=myName.split(/\s+/)[0],list=SPECIAL[first.toLowerCase()]||NORMAL;
+  const msg=list[Math.floor(Math.random()*list.length)].replace(/\{n\}/g,first);
+  const h=$("hello");h.hidden=false;h.innerHTML=`<span>${esc(msg)}</span><a id="nn">Not you?</a><a id="hx">✕</a>`;
+}
+async function start(){
+  if(startedFor===uid)return;startedFor=uid;
+  if(!myName)await askName();
+  recordVisit();greet();
+}
+function visitors(){
+  sheet(`<h2>Visitors</h2><div class="note">Loading…</div>`+closeB);
+  db.ref("people").once("value").then(s=>{
+    const g={};Object.values(s.val()||{}).forEach(p=>{const k=(p.name||"?").toLowerCase(),o=g[k]=g[k]||{name:p.name,visits:0,last:0};o.visits+=p.visits||0;o.last=Math.max(o.last,p.last||0)});
+    const rows=Object.values(g).sort((a,b)=>b.last-a.last);
+    sheet(`<h2>Visitors</h2>`+(rows.length?`<table style="width:100%"><thead><tr><th>Name</th><th class="n">Visits</th><th>Last seen</th></tr></thead><tbody>`+rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="n">${r.visits}</td><td>${fmt(r.last)}</td></tr>`).join("")+`</tbody></table>`:`<div class="empty">No visitors yet.</div>`)+`<div class="note">The same name on different phones is added together.</div>`+closeB);
+  }).catch(()=>sheet(`<h2>Visitors</h2><div class="note">Only editors can see this.</div>`+closeB));
+}
 function trySeed(){if(canEdit&&catsNull&&!seeded){seeded=true;db.ref("cats").set(DEFAULT_CATS)}}
 render();
 if(firebaseConfig.apiKey==="PASTE_HERE"){$("sync").textContent="Setup needed: paste your Firebase config at the top of the file."}
@@ -249,6 +296,7 @@ else{
     const m=location.hash.match(/k=([^&]+)/);
     if(m){try{await unlock(decodeURIComponent(m[1]));toast("Editing unlocked")}catch(e){toast("Link failed: "+(e.code||e.message))}
       history.replaceState(null,"",location.pathname+location.search)}
+    start();
   });
 }
 </script>
