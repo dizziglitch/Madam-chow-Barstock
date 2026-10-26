@@ -101,6 +101,7 @@ let db,auth,uid=null,canEdit=false,cats=[],items=[],logs=[],catsNull=false,seede
 let q="",fcat="all",lowOnly=false,sk="name",sd=1;
 const pend={};
 let myName=lsGet("who")||"",nameOpen=false,startedFor=null;
+let costs={},isOwner=false;
 // ===== Welcome messages. Add more names here: lowercase first name -> list of messages ({n} = first name) =====
 const SPECIAL={
   charmi:["Hii 15 days senior!","Welcome, 15 days senior {n}!","Hii {n}, 15 days senior has arrived","Good to see you, 15 days senior"]
@@ -114,9 +115,9 @@ function hl(s){s=String(s==null?"":s);if(!q)return esc(s);const i=s.toLowerCase(
   return i<0?esc(s):esc(s.slice(0,i))+"<mark>"+esc(s.slice(i,i+q.length))+"</mark>"+esc(s.slice(i+q.length))}
 
 function render(){
-  $("state").innerHTML=canEdit?`Editing <a id="lk">Lock</a>`:`View only <a id="ul">Unlock to edit</a>`;
+  $("state").innerHTML=canEdit?`${isOwner?"Owner":"Editing"} <a id="lk">Lock</a>`:`View only <a id="ul">Unlock to edit</a>`;
   $("fc").innerHTML=`<option value="all">All categories</option>`+cats.map(c=>`<option value="${c.id}" ${fcat===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
-  $("acts").innerHTML=(canEdit?`<button class="pri" id="bAdd">+ Add item</button><button id="bCat">Categories</button><button id="bVis">Visitors</button>`:"")+
+  $("acts").innerHTML=(canEdit?`<button class="pri" id="bAdd">+ Add item</button><button id="bCat">Categories</button>`:"")+(isOwner?`<button id="bOwn">Owner tools</button>`:"")+
     `<button id="bRe">Reorder list</button><button id="bLog">Activity</button><button id="bSh">Share</button><button id="bX">Export CSV</button>`;
   document.querySelectorAll("th").forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,"")+(th.dataset.k===sk?(sd>0?" ▲":" ▼"):""));
   const rows=items.filter(i=>{
@@ -149,7 +150,7 @@ function setQty(i,n){
 document.addEventListener("click",e=>{
   const id=e.target.id;
   if(id==="bAdd")return itemSheet(null);if(id==="eAdd")return itemSheet(null,q);
-  if(id==="bCat")return catSheet();if(id==="bVis")return visitors();if(id==="bRe")return reorder();if(id==="bLog")return activity();
+  if(id==="bCat")return catSheet();if(id==="bOwn")return ownerMenu();if(id==="bRe")return reorder();if(id==="bLog")return activity();
   if(id==="bSh")return share();if(id==="bX")return exportCsv();
   if(id==="ul")return unlockSheet();
   if(id==="hx"){$("hello").hidden=true;return}
@@ -180,13 +181,14 @@ function itemSheet(i,prefill){
    <div class="g2"><label class="f">In stock<input id="fq" type="number" inputmode="numeric" min="0" value="${i.qty}"></label>
    <label class="f">Low alert at<input id="fm" type="number" inputmode="numeric" min="0" value="${i.min??""}"></label>
    <label class="f">Size (ml)<input id="fs" type="number" inputmode="numeric" value="${i.size||""}"></label>
-   <label class="f">Price per bottle (₹)<input id="fp" type="number" inputmode="decimal" value="${i.price||""}"></label></div>
+   <label class="f">Price per bottle (₹)<input id="fp" type="number" inputmode="decimal" value="${i.price||""}"></label>${isOwner?`<label class="f">Cost price (₹, owner only)<input id="fcost" type="number" inputmode="decimal" value="${costs[i.id]??""}"></label>`:""}</div>
    <label class="f">Note<input id="fo" value="${attr(i.note)}"></label>
    <div class="btns">${n?"":`<button class="del" id="fd">Delete</button>`}<button onclick="document.getElementById('dlg').close()">Cancel</button><button class="pri" id="fsv">Save</button></div>`);
   $("fsv").onclick=()=>{
     const name=$("fn").value.trim();if(!name){$("fn").focus();return}
     const d={name,cat:$("fcat").value,qty:Math.max(0,parseInt($("fq").value,10)||0),min:Math.max(0,parseInt($("fm").value,10)||0),size:parseInt($("fs").value,10)||0,price:parseFloat($("fp").value)||0,note:$("fo").value.trim(),updated:Date.now(),by:who()};
     const id=n?db.ref("items").push().key:i.id;
+    if(isOwner){const cv=parseFloat($("fcost")&&$("fcost").value)||null;db.ref("costs/"+id).set(cv).catch(()=>{})}
     db.ref("items/"+id).set(d).then(()=>{toast(n?"Item added":"Saved");log(n?`Added ${name} (${d.qty})`:`Edited ${name}`+(d.qty!==i.qty?`: ${i.qty} → ${d.qty}`:""))}).catch(()=>toast("Not allowed"));
     $("dlg").close();
   };
@@ -220,7 +222,7 @@ function exportCsv(){
 }
 
 const base=()=>location.href.split("#")[0];
-const unlock=code=>db.ref("editors/"+uid).set(code);
+const unlock=async(code,ownerOK=true)=>{try{await db.ref("editors/"+uid).set(code)}catch(e){if(!ownerOK)throw e;await db.ref("owners/"+uid).set(code)}};
 function unlockSheet(){
   sheet(`<h2>Unlock editing</h2><label class="f">Secret text<input id="uk" type="text" autocapitalize="characters" autocomplete="off" autocorrect="off" spellcheck="false"></label><div class="btns"><button class="pri" id="ug">Unlock</button></div>`);
   $("ug").onclick=()=>unlock($("uk").value.trim()).then(()=>{$("dlg").close();toast("Editing unlocked")}).catch(e=>toast("Failed: "+(e.code||e.message)));
@@ -234,7 +236,7 @@ function share(){
   $("cv").onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(base());toast("Link copied")};
   $("sr").onclick=async()=>{
     const code=$("sk").value.trim();if(!code||!uid)return;
-    try{await unlock(code)}catch(e){$("sout").innerHTML=`<div class="note" style="color:var(--lowink)">Failed: ${esc(e.code||e.message)}</div>`;return}
+    try{await unlock(code,false)}catch(e){$("sout").innerHTML=`<div class="note" style="color:var(--lowink)">Failed: ${esc(e.code||e.message)}</div>`;return}
     const link=base()+"#k="+encodeURIComponent(code);
     $("sout").innerHTML=`<div class="box">${esc(link)}</div><div class="btns" style="justify-content:flex-start"><button id="ce">Copy</button><button class="pri" onclick="window.open('https://wa.me/?text='+encodeURIComponent('Bar stock (edit): ${link.replace(/'/g,"")}'))">WhatsApp</button></div><div class="note">Share only with people you trust.</div>`;
     $("ce").onclick=()=>{navigator.clipboard&&navigator.clipboard.writeText(link);toast("Editor link copied")};
@@ -266,7 +268,7 @@ function greet(){
 }
 async function start(){
   if(startedFor===uid)return;startedFor=uid;
-  if(!myName)await askName();
+  await namePromise;
   recordVisit();greet();
 }
 function visitors(){
@@ -275,10 +277,39 @@ function visitors(){
     const g={};Object.values(s.val()||{}).forEach(p=>{const k=(p.name||"?").toLowerCase(),o=g[k]=g[k]||{name:p.name,visits:0,last:0};o.visits+=p.visits||0;o.last=Math.max(o.last,p.last||0)});
     const rows=Object.values(g).sort((a,b)=>b.last-a.last);
     sheet(`<h2>Visitors</h2>`+(rows.length?`<table style="width:100%"><thead><tr><th>Name</th><th class="n">Visits</th><th>Last seen</th></tr></thead><tbody>`+rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="n">${r.visits}</td><td>${fmt(r.last)}</td></tr>`).join("")+`</tbody></table>`:`<div class="empty">No visitors yet.</div>`)+`<div class="note">The same name on different phones is added together.</div>`+closeB);
-  }).catch(()=>sheet(`<h2>Visitors</h2><div class="note">Only editors can see this.</div>`+closeB));
+  }).catch(()=>sheet(`<h2>Visitors</h2><div class="note">Only the owner can see this.</div>`+closeB));
+}
+function ownerMenu(){
+  if(!isOwner)return;
+  sheet(`<h2>Owner tools</h2>
+   <div class="row"><button id="oV" style="flex:1">Visitors</button></div>
+   <div class="row"><button id="oE" style="flex:1">Editors and blocking</button></div>
+   <div class="row"><button id="oP" style="flex:1">Profit report</button></div>
+   <div class="row"><button id="oC" class="del" style="flex:1">Clear activity log</button></div>`+closeB);
+  $("oV").onclick=visitors;$("oE").onclick=editorsList;$("oP").onclick=profit;
+  $("oC").onclick=()=>{if(confirm("Delete the whole activity log?"))db.ref("log").remove().then(()=>toast("Log cleared")).catch(()=>toast("Not allowed"))};
+}
+async function editorsList(){
+  sheet(`<h2>Editors</h2><div class="note">Loading…</div>`+closeB);
+  try{
+    const [e,p,b]=await Promise.all(["editors","people","blocked"].map(n=>db.ref(n).once("value").then(x=>x.val()||{})));
+    const rows=Object.keys(e).filter(u=>u!==uid).map(u=>({u,name:(p[u]||{}).name||"(unknown)",last:(p[u]||{}).last,bl:b[u]!=null}));
+    sheet(`<h2>Editors</h2>`+(rows.length?rows.map(r=>`<div class="row"><div style="flex:1">${esc(r.name)}<div class="sub">${r.bl?"Blocked":"Last seen "+fmt(r.last)}</div></div><button data-bl="${r.u}" data-b="${r.bl?0:1}" class="${r.bl?"":"del"}">${r.bl?"Unblock":"Block"}</button></div>`).join(""):`<div class="empty">Nobody else has unlocked editing yet.</div>`)+`<div class="note">A blocked person can still view the stock but cannot edit, even with the code.</div>`+closeB);
+    $("dlg").querySelectorAll("[data-bl]").forEach(bt=>bt.onclick=()=>{
+      const r=db.ref("blocked/"+bt.dataset.bl);(bt.dataset.b==="1"?r.set(true):r.remove()).then(()=>{toast(bt.dataset.b==="1"?"Blocked":"Unblocked");editorsList()}).catch(()=>toast("Not allowed"))});
+  }catch(err){sheet(`<h2>Editors</h2><div class="note">Could not load: ${esc(err.code||err.message)}</div>`+closeB)}
+}
+function profit(){
+  const pm=items.map(i=>({i,c:costs[i.id]||0,s:i.price||0})).filter(r=>r.c>0&&r.s>0).map(r=>({...r,m:(r.s-r.c)/r.s})).sort((a,b)=>b.m-a.m);
+  const cv=pm.reduce((t,r)=>t+r.c*r.i.qty,0),sv=pm.reduce((t,r)=>t+r.s*r.i.qty,0);
+  sheet(`<h2>Profit report</h2>
+   <div class="g2"><div class="note">Stock at cost<br><b>${money(cv)}</b></div><div class="note">Stock at selling price<br><b>${money(sv)}</b></div>
+   <div class="note">Possible profit<br><b>${money(sv-cv)}</b></div><div class="note">Items missing cost or price<br><b>${items.length-pm.length}</b></div></div>`+
+   (pm.length?`<div class="wrap"><table><thead><tr><th>Item</th><th class="n">Stock</th><th class="n">Cost</th><th class="n">Sell</th><th class="n">Margin</th></tr></thead><tbody>`+pm.map(r=>`<tr><td>${esc(r.i.name)}</td><td class="n">${r.i.qty}</td><td class="n">${money(r.c)}</td><td class="n">${money(r.s)}</td><td class="n">${Math.round(r.m*100)}%</td></tr>`).join("")+`</tbody></table></div>`:`<div class="empty">Add a cost and a price to items to see margins.</div>`)+closeB);
 }
 function trySeed(){if(canEdit&&catsNull&&!seeded){seeded=true;db.ref("cats").set(DEFAULT_CATS)}}
 render();
+const namePromise=myName?Promise.resolve(myName):askName();
 if(firebaseConfig.apiKey==="PASTE_HERE"){$("sync").textContent="Setup needed: paste your Firebase config at the top of the file."}
 else{
   firebase.initializeApp(firebaseConfig);db=firebase.database();auth=firebase.auth();
@@ -287,14 +318,17 @@ else{
   db.ref("items").on("value",s=>{items=Object.entries(s.val()||{}).filter(([k,d])=>d&&typeof d.name==="string").map(([id,d])=>({qty:0,min:0,...d,id}));
     $("sync").textContent="Live. Changes show for everyone straight away.";render()},err);
   db.ref("log").limitToLast(40).on("value",s=>{logs=Object.values(s.val()||{}).sort((a,b)=>b.t-a.t)},()=>{});
-  let watching=null;
+  let watching=[],costRef=null;const st={};
+  const calc=()=>{isOwner=st.owners!=null;canEdit=(st.editors!=null&&st.blocked==null)||isOwner;
+    if(isOwner&&!costRef){costRef=db.ref("costs");costRef.on("value",x=>{costs=x.val()||{}},()=>{})}
+    if(!isOwner&&costRef){costRef.off();costRef=null;costs={}}
+    trySeed();render()};
   auth.onAuthStateChanged(async u=>{
     if(!u){auth.signInAnonymously().catch(()=>$("sync").textContent="Turn on Anonymous sign-in in Firebase");return}
-    uid=u.uid;if(watching)watching.off();
-    watching=db.ref("editors/"+uid);
-    watching.on("value",s=>{canEdit=s.val()!==null;trySeed();render()},()=>{});
+    uid=u.uid;watching.forEach(w=>w.off());for(const k in st)delete st[k];
+    watching=["editors","owners","blocked"].map(n=>{const r=db.ref(n+"/"+uid);r.on("value",x=>{st[n]=x.val();calc()},()=>{});return r});
     const m=location.hash.match(/k=([^&]+)/);
-    if(m){try{await unlock(decodeURIComponent(m[1]));toast("Editing unlocked")}catch(e){toast("Link failed: "+(e.code||e.message))}
+    if(m){try{await unlock(decodeURIComponent(m[1]),false);toast("Editing unlocked")}catch(e){toast("Link failed: "+(e.code||e.message))}
       history.replaceState(null,"",location.pathname+location.search)}
     start();
   });
