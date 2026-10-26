@@ -103,12 +103,14 @@ const pend={};
 let myName=lsGet("who")||"",nameOpen=false,startedFor=null;
 let costs={},isOwner=false;
 // ===== Welcome messages. Add more names here: lowercase first name -> list of messages ({n} = first name) =====
+const EMO=["👀","👽","🐧","🐒","🧟‍♂️","🧸","🤖","👾"];
 const SPECIAL={
-  charmi:["Hii 15 days senior!","Welcome, 15 days senior {n}!","Hii {n}, 15 days senior has arrived","Good to see you, 15 days senior"]
+  charmi:["Hii 15 days senior!","Welcome, 15 days senior {n}!","Hii {n}, 15 days senior has arrived","Good to see you, 15 days senior","Senior alert: 15 days senior is here!","The 15 days senior is back!","Make way for the 15 days senior","Hii senior {n}, the bar is in safe hands"]
 };
 const NORMAL=["Hii {n}, welcome!","Welcome back, {n}","Good to see you, {n}","Hello {n}, let us check the stock"];
 const cname=id=>(cats.find(c=>c.id===id)||{name:"Other"}).name;
 const isLow=i=>i.qty<=(i.min||0)&&(i.min>0||i.qty===0);
+const redLow=i=>isLow(i)&&i.qty<=2;
 const money=n=>"₹"+Math.round(n).toLocaleString("en-IN");
 function toast(t){const e=$("toast");e.textContent=t;e.style.display="block";clearTimeout(toast.t);toast.t=setTimeout(()=>e.style.display="none",2200)}
 function hl(s){s=String(s==null?"":s);if(!q)return esc(s);const i=s.toLowerCase().indexOf(q);
@@ -118,15 +120,15 @@ function render(){
   $("state").innerHTML=canEdit?`${isOwner?"Owner":"Editing"} <a id="lk">Lock</a>`:`View only <a id="ul">Unlock to edit</a>`;
   $("fc").innerHTML=`<option value="all">All categories</option>`+cats.map(c=>`<option value="${c.id}" ${fcat===c.id?"selected":""}>${esc(c.name)}</option>`).join("");
   $("acts").innerHTML=(canEdit?`<button class="pri" id="bAdd">+ Add item</button><button id="bCat">Categories</button>`:"")+(isOwner?`<button id="bOwn">Owner tools</button>`:"")+
-    `<button id="bRe">Reorder list</button><button id="bLog">Activity</button><button id="bSh">Share</button><button id="bX">Export CSV</button>`;
+    `<button id="bRe">Reorder list</button><button id="bLog">Activity</button><button id="bSh">Share</button><button id="bX">Export CSV</button><button id="nn">Change name</button>`;
   document.querySelectorAll("th").forEach(th=>th.textContent=th.textContent.replace(/ [▲▼]$/,"")+(th.dataset.k===sk?(sd>0?" ▲":" ▼"):""));
   const rows=items.filter(i=>{
-    if(fcat!=="all"&&i.cat!==fcat)return false;if(lowOnly&&!isLow(i))return false;
+    if(fcat!=="all"&&i.cat!==fcat)return false;if(lowOnly&&!redLow(i))return false;
     return !q||(i.name+" "+(i.note||"")+" "+cname(i.cat)).toLowerCase().includes(q)});
   const val=i=>sk==="cat"?cname(i.cat).toLowerCase():sk==="name"?i.name.toLowerCase():(i[sk]||0);
   rows.sort((a,b)=>(val(a)>val(b)?1:val(a)<val(b)?-1:0)*sd);
   $("t").className=canEdit?"ed":"";
-  $("rows").innerHTML=rows.length?rows.map(i=>`<tr class="${isLow(i)?"low":""}" data-id="${i.id}">
+  $("rows").innerHTML=rows.length?rows.map(i=>`<tr class="${redLow(i)?"low":""}" data-id="${i.id}">
     <td class="it" data-a="edit"><div class="nm">${hl(i.name)}</div>
       <div class="sub">${i.note?hl(i.note):""}</div>
       <div class="sub msub">${[i.size?i.size+" ml":"",i.price?money(i.price):"",i.min?"min "+i.min:""].filter(Boolean).join(" · ")}</div>${i.by?`<div class="sub">Changed by ${esc(i.by)}, ${ago(i.updated)}</div>`:""}</td>
@@ -134,7 +136,7 @@ function render(){
     <td class="opt n">${i.size||""}</td><td class="opt n">${i.min||""}</td><td class="opt n">${i.price?money(i.price):""}</td>
     <td class="n">${canEdit?`<div class="stk"><button data-a="m" aria-label="Minus">−</button><input type="number" inputmode="numeric" min="0" value="${i.qty}" data-a="s"><button data-a="p" aria-label="Plus">+</button></div>`:`<b>${i.qty}</b>`}</td></tr>`).join("")
     :`<tr><td colspan="6" class="empty">${items.length?"No items match.":"No items yet."}${canEdit&&q?` <a id="eAdd" style="color:var(--blue);cursor:pointer">Add “${esc(q)}”</a>`:""}</td></tr>`;
-  const tot=items.reduce((s,i)=>s+i.qty,0),tv=items.reduce((s,i)=>s+(i.price||0)*i.qty,0),lw=items.filter(isLow).length;
+  const tot=items.reduce((s,i)=>s+i.qty,0),tv=items.reduce((s,i)=>s+(i.price||0)*i.qty,0),lw=items.filter(redLow).length;
   $("foot").innerHTML=`<tr><td colspan="6">Showing ${rows.length} of ${items.length} items · ${tot} bottles · ${lw} low${tv?" · value "+money(tv):""}</td></tr>`;
 }
 
@@ -154,7 +156,7 @@ document.addEventListener("click",e=>{
   if(id==="bSh")return share();if(id==="bX")return exportCsv();
   if(id==="ul")return unlockSheet();
   if(id==="hx"){$("hello").hidden=true;return}
-  if(id==="nn")return askName(myName).then(()=>{recordVisit(true);greet()});
+  if(id==="nn")return askName(myName).then(()=>{if(db&&uid)db.ref("people/"+uid+"/name").set(myName).catch(()=>{});greet()});
   if(id==="lk"){auth.signOut().then(()=>auth.signInAnonymously()).then(()=>toast("Locked"));return}
   const th=e.target.closest("th[data-k]");if(th){const k=th.dataset.k;sd=sk===k?-sd:1;sk=k;render();return}
   const b=e.target.closest("#rows [data-a]");if(!b)return;
@@ -259,12 +261,15 @@ function recordVisit(force){
   if(!db||!uid||!myName)return;
   let seen=null;try{seen=sessionStorage.getItem("v"+uid);sessionStorage.setItem("v"+uid,"1")}catch(e){}
   const now=Date.now();
-  db.ref("people/"+uid).transaction(c=>({name:myName,first:(c&&c.first)||now,last:now,visits:((c&&c.visits)||0)+((seen&&!force)?0:1)})).catch(()=>{});
+  const count=!(seen&&!force);
+  db.ref("people/"+uid).transaction(c=>{const lg=Object.values((c&&c.logins)||{});if(count)lg.push(now);
+    return {name:myName,first:(c&&c.first)||now,last:now,visits:((c&&c.visits)||0)+(count?1:0),logins:lg.slice(-20)}}).catch(()=>{});
 }
 function greet(){
   const first=myName.split(/\s+/)[0],list=SPECIAL[first.toLowerCase()]||NORMAL;
-  const msg=list[Math.floor(Math.random()*list.length)].replace(/\{n\}/g,first);
-  const h=$("hello");h.hidden=false;h.innerHTML=`<span>${esc(msg)}</span><a id="nn">Not you?</a><a id="hx">✕</a>`;
+  const msg=list[Math.floor(Math.random()*list.length)].replace(/\{n\}/g,first)+" "+EMO[Math.floor(Math.random()*EMO.length)];
+  const h=$("hello");h.hidden=false;h.innerHTML=`<span>${esc(msg)}</span>`;
+  clearTimeout(greet.t);greet.t=setTimeout(()=>{h.hidden=true},2000);
 }
 async function start(){
   if(startedFor===uid)return;startedFor=uid;
@@ -273,10 +278,17 @@ async function start(){
 }
 function visitors(){
   sheet(`<h2>Visitors</h2><div class="note">Loading…</div>`+closeB);
-  db.ref("people").once("value").then(s=>{
-    const g={};Object.values(s.val()||{}).forEach(p=>{const k=(p.name||"?").toLowerCase(),o=g[k]=g[k]||{name:p.name,visits:0,last:0};o.visits+=p.visits||0;o.last=Math.max(o.last,p.last||0)});
-    const rows=Object.values(g).sort((a,b)=>b.last-a.last);
-    sheet(`<h2>Visitors</h2>`+(rows.length?`<table style="width:100%"><thead><tr><th>Name</th><th class="n">Visits</th><th>Last seen</th></tr></thead><tbody>`+rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="n">${r.visits}</td><td>${fmt(r.last)}</td></tr>`).join("")+`</tbody></table>`:`<div class="empty">No visitors yet.</div>`)+`<div class="note">The same name on different phones is added together.</div>`+closeB);
+  db.ref("people").once("value").then(x=>{
+    const g={},ev=[];
+    Object.values(x.val()||{}).forEach(p=>{
+      const k=(p.name||"?").toLowerCase(),o=g[k]=g[k]||{name:p.name,visits:0,last:0};
+      o.visits+=p.visits||0;o.last=Math.max(o.last,p.last||0);
+      Object.values(p.logins||{}).forEach(t=>ev.push({n:p.name,t}));
+    });
+    const rows=Object.values(g).sort((a,b)=>b.last-a.last);ev.sort((a,b)=>b.t-a.t);
+    sheet(`<h2>Visitors</h2>`+(rows.length?`<table style="width:100%"><thead><tr><th>Name</th><th class="n">Visits</th><th>Last seen</th></tr></thead><tbody>`+rows.map(r=>`<tr><td>${esc(r.name)}</td><td class="n">${r.visits}</td><td>${fmt(r.last)}</td></tr>`).join("")+`</tbody></table>`:`<div class="empty">No visitors yet.</div>`)+
+      `<h2 style="margin-top:16px">Recent logins</h2>`+(ev.length?ev.slice(0,60).map(e=>`<div class="lg">${esc(e.n)}<small>${fmt(e.t)}</small></div>`).join(""):`<div class="note">Each login from now on will be listed here.</div>`)+
+      `<div class="note">The same name on different phones is added together.</div>`+closeB);
   }).catch(()=>sheet(`<h2>Visitors</h2><div class="note">Only the owner can see this.</div>`+closeB));
 }
 function ownerMenu(){
