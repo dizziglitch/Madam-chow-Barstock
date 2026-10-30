@@ -339,6 +339,8 @@ function shareText(text){
 const TEASE_STYLE="Friendly bar-team banter: playful roasting, light sarcasm and silly nicknames. Use Hinglish when it feels natural.";
 const DIZZI_MODELS=["gemini-3.5-flash","gemini-2.5-flash","gemini-3-flash-preview"];
 const DIZZI_DAILY_LIMIT=40;
+// reCAPTCHA Enterprise site key from Firebase > App Check (needed for the AI to work)
+const RECAPTCHA_KEY="6LfdsQcuAAAAAANWjd3d0tl0xwrut9Suu8-iqoYi";
 // To use your own icon: upload an image (for example dizzi.png) to the repo and write its name here
 const DIZZI_ICON="";
 const SPIDER_SVG='<svg viewBox="0 0 32 32" width="32" height="32" aria-hidden="true"><g fill="none" stroke="#fff" stroke-width="1.8" stroke-linecap="round"><path d="M13 14L5 8L2 9"/><path d="M13 16L4 16L2 19"/><path d="M13 18L5 25L3 29"/><path d="M14 20L10 28L9 30"/><path d="M19 14L27 8L30 9"/><path d="M19 16L28 16L30 19"/><path d="M19 18L27 25L29 29"/><path d="M18 20L22 28L23 30"/></g><ellipse cx="16" cy="19" rx="4" ry="6" fill="#fff"/><circle cx="16" cy="11.5" r="3" fill="#fff"/></svg>';
@@ -363,8 +365,9 @@ function dizziPrompt(){
 async function loadAI(){
   if(aiMod)return aiMod;
   const V="https://www.gstatic.com/firebasejs/11.10.0/";
-  const [a,b]=await Promise.all([import(V+"firebase-app.js"),import(V+"firebase-ai.js")]);
+  const [a,b,c]=await Promise.all([import(V+"firebase-app.js"),import(V+"firebase-ai.js"),import(V+"firebase-app-check.js")]);
   const app=a.initializeApp(firebaseConfig,"dizzi-ai");
+  if(RECAPTCHA_KEY)c.initializeAppCheck(app,{provider:new c.ReCaptchaEnterpriseProvider(RECAPTCHA_KEY),isTokenAutoRefreshEnabled:true});
   aiMod={b,ai:b.getAI(app,{backend:new b.GoogleAIBackend()})};
   return aiMod;
 }
@@ -397,8 +400,12 @@ async function dizziSend(){
   dizziRender();
 }
 function dizzi(){
+  if(!isOwner&&!lsGet("dzNote")){
+    sheet(`<h2>Before you chat with DIZZI</h2><div style="margin-bottom:12px">Chats with DIZZI are saved, and the owner of this app can read them. Please do not share anything you want to keep private.</div><div class="btns"><button class="pri" id="dok">OK, continue</button></div>`+closeB);
+    $("dok").onclick=()=>{lsSet("dzNote","1");dizzi()};return;
+  }
   if(!dm.length)dm.push({r:"bot",t:"Hii "+(myName||"friend").split(/\s+/)[0]+"! I am DIZZI 👾 Ask me about the stock, or just talk to me.",x:1});
-  sheet(`<h2>DIZZI</h2><div id="cbx" class="cbox"></div><div class="row"><input id="cin" placeholder="Talk to DIZZI…" autocomplete="off" maxlength="500"><button class="pri" id="csend">Send</button></div><div class="note">The owner can read chats with DIZZI.</div>`+closeB);
+  sheet(`<h2>DIZZI</h2><div id="cbx" class="cbox"></div><div class="row"><input id="cin" placeholder="Talk to DIZZI…" autocomplete="off" maxlength="500"><button class="pri" id="csend">Send</button></div>`+closeB);
   $("csend").onclick=dizziSend;$("cin").onkeydown=e=>{if(e.key==="Enter")dizziSend()};dizziRender();
 }
 function dizziChats(){
